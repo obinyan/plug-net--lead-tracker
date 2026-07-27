@@ -1,3 +1,11 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Client Pipeline — Lead Tracker</title>
+</head>
+<body>
 <div id="app"></div>
 <style>
   *{box-sizing:border-box;}
@@ -101,6 +109,20 @@
 
   .empty{color:var(--muted);text-align:center;padding:40px 0;font-size:13px;}
   .loading{color:var(--muted);text-align:center;padding:40px 0;font-family:var(--mono);font-size:13px;}
+
+  .lock-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;}
+  .lock-card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:32px 28px;width:100%;max-width:340px;}
+  .lock-input{
+    width:100%;background:var(--panel-2);border:1px solid var(--line);color:var(--text);
+    padding:10px 12px;border-radius:6px;font-family:var(--sans);font-size:14px;
+  }
+  .pw-input-wrap{position:relative;display:flex;align-items:center;}
+  .pw-input-wrap .lock-input{padding-right:40px;}
+  .pw-toggle{
+    position:absolute;right:6px;top:50%;transform:translateY(-50%);
+    background:none;border:none;color:var(--muted);font-size:16px;padding:4px 6px;cursor:pointer;line-height:1;
+  }
+  .pw-toggle:hover{opacity:.8;}
 </style>
 <script type="text/babel">
 const { useState, useEffect, useMemo } = React;
@@ -155,6 +177,12 @@ function StatusPill({status}){
 }
 
 function App(){
+  const [authed,setAuthed] = useState(false);
+  const [pwInput,setPwInput] = useState("");
+  const [pwError,setPwError] = useState(false);
+  const [networkError,setNetworkError] = useState(false);
+  const [checkingAuth,setCheckingAuth] = useState(true);
+  const [showPw,setShowPw] = useState(false);
   const [leads,setLeads] = useState(null);
   const [scope,setScope] = useState("local");
   const [region,setRegion] = useState("Lagos");
@@ -209,23 +237,78 @@ function App(){
     URL.revokeObjectURL(url);
   }
 
-  useEffect(()=>{
-    (async ()=>{
-      try{
-        const res = await window.storage.get("leads", false);
-        setLeads(res ? JSON.parse(res.value) : SEED_LEADS);
-      }catch(e){
-        setLeads(SEED_LEADS);
+  function authHeaders(){
+    const pw = sessionStorage.getItem("sitePassword") || "";
+    return {"Content-Type":"application/json", "x-site-password": pw};
+  }
+
+  async function loadLeads(){
+    try{
+      const r = await fetch("/api/leads", {headers: authHeaders()});
+      if(r.status===401){
+        sessionStorage.removeItem("sitePassword");
+        setAuthed(false);
+        setCheckingAuth(false);
+        return;
       }
-    })();
+      const data = await r.json();
+      setLeads((data && data.leads) ? data.leads : SEED_LEADS);
+      setAuthed(true);
+      setCheckingAuth(false);
+    }catch(e){
+      setLeads(SEED_LEADS);
+      setAuthed(true);
+      setCheckingAuth(false);
+    }
+  }
+
+  useEffect(()=>{
+    const stored = sessionStorage.getItem("sitePassword");
+    if(stored===null){
+      setCheckingAuth(false);
+      return;
+    }
+    loadLeads();
   },[]);
+
+  async function submitPassword(){
+    sessionStorage.setItem("sitePassword", pwInput);
+    setPwError(false);
+    setNetworkError(false);
+    setCheckingAuth(true);
+    try{
+      const r = await fetch("/api/leads", {headers: authHeaders()});
+      if(r.status===401){
+        sessionStorage.removeItem("sitePassword");
+        setPwError(true);
+        setCheckingAuth(false);
+        return;
+      }
+      const data = await r.json();
+      setLeads((data && data.leads) ? data.leads : SEED_LEADS);
+      setAuthed(true);
+      setCheckingAuth(false);
+    }catch(e){
+      sessionStorage.removeItem("sitePassword");
+      setNetworkError(true);
+      setCheckingAuth(false);
+    }
+  }
 
   async function persist(next){
     setLeads(next);
     try{
-      const res = await window.storage.set("leads", JSON.stringify(next), false);
-      if(!res) setSaveError(true);
-      else setSaveError(false);
+      const r = await fetch("/api/leads", {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify(next)
+      });
+      if(r.status===401){
+        sessionStorage.removeItem("sitePassword");
+        setAuthed(false);
+        return;
+      }
+      setSaveError(!r.ok);
     }catch(e){
       setSaveError(true);
     }
@@ -288,6 +371,43 @@ function App(){
     STATUSES.forEach(s => c[s] = scopeLeads.filter(l=>l.status===s).length);
     return c;
   },[scopeLeads]);
+
+  if(checkingAuth){
+    return <div className="loading">checking access…</div>;
+  }
+
+  if(!authed){
+    return (
+      <div className="lock-wrap">
+        <div className="lock-card">
+          <div className="brand-eyebrow">// PlugNet Web Enterprise lead_pipeline</div>
+          <h1 style={{marginBottom:14}}>Enter password</h1>
+          <div className="pw-input-wrap">
+            <input
+              type={showPw ? "text" : "password"}
+              className="lock-input"
+              placeholder="Site password"
+              value={pwInput}
+              onChange={e=>setPwInput(e.target.value)}
+              onKeyDown={e=>{ if(e.key==="Enter") submitPassword(); }}
+              autoFocus
+            />
+            <button
+              type="button"
+              className="pw-toggle"
+              onClick={()=>setShowPw(!showPw)}
+              aria-label={showPw ? "Hide password" : "Show password"}
+            >
+              {showPw ? "🙈" : "👁"}
+            </button>
+          </div>
+          <button style={{marginTop:10,width:"100%"}} onClick={submitPassword}>Unlock</button>
+          {pwError && <div style={{color:"var(--signal)",fontSize:12,marginTop:8}}>Incorrect password — try again.</div>}
+          {networkError && <div style={{color:"var(--signal)",fontSize:12,marginTop:8}}>Connection hiccup — please try again.</div>}
+        </div>
+      </div>
+    );
+  }
 
   if(leads===null){
     return <div className="loading">loading leads…</div>;
@@ -447,3 +567,4 @@ ReactDOM.createRoot(document.getElementById("app")).render(<App/>);
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+</body></html>
