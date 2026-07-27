@@ -109,6 +109,13 @@
 
   .empty{color:var(--muted);text-align:center;padding:40px 0;font-size:13px;}
   .loading{color:var(--muted);text-align:center;padding:40px 0;font-family:var(--mono);font-size:13px;}
+
+  .lock-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;}
+  .lock-card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:32px 28px;width:100%;max-width:340px;}
+  .lock-input{
+    width:100%;background:var(--panel-2);border:1px solid var(--line);color:var(--text);
+    padding:10px 12px;border-radius:6px;font-family:var(--sans);font-size:14px;
+  }
 </style>
 <script type="text/babel">
 const { useState, useEffect, useMemo } = React;
@@ -163,6 +170,10 @@ function StatusPill({status}){
 }
 
 function App(){
+  const [authed,setAuthed] = useState(false);
+  const [pwInput,setPwInput] = useState("");
+  const [pwError,setPwError] = useState(false);
+  const [checkingAuth,setCheckingAuth] = useState(true);
   const [leads,setLeads] = useState(null);
   const [scope,setScope] = useState("local");
   const [region,setRegion] = useState("Lagos");
@@ -217,20 +228,71 @@ function App(){
     URL.revokeObjectURL(url);
   }
 
-  useEffect(()=>{
+  function authHeaders(){
+    const pw = sessionStorage.getItem("sitePassword") || "";
+    return {"Content-Type":"application/json", "x-site-password": pw};
+  }
+
+  async function loadLeads(){
     try{
-      const raw = localStorage.getItem("leads");
-      setLeads(raw ? JSON.parse(raw) : SEED_LEADS);
+      const r = await fetch("/api/leads", {headers: authHeaders()});
+      if(r.status===401){
+        sessionStorage.removeItem("sitePassword");
+        setAuthed(false);
+        setCheckingAuth(false);
+        return;
+      }
+      const data = await r.json();
+      setLeads((data && data.leads) ? data.leads : SEED_LEADS);
+      setAuthed(true);
+      setCheckingAuth(false);
     }catch(e){
       setLeads(SEED_LEADS);
+      setAuthed(true);
+      setCheckingAuth(false);
     }
+  }
+
+  useEffect(()=>{
+    const stored = sessionStorage.getItem("sitePassword");
+    if(stored===null){
+      setCheckingAuth(false);
+      return;
+    }
+    loadLeads();
   },[]);
 
-  function persist(next){
+  async function submitPassword(){
+    sessionStorage.setItem("sitePassword", pwInput);
+    setPwError(false);
+    setCheckingAuth(true);
+    const r = await fetch("/api/leads", {headers: authHeaders()});
+    if(r.status===401){
+      sessionStorage.removeItem("sitePassword");
+      setPwError(true);
+      setCheckingAuth(false);
+      return;
+    }
+    const data = await r.json();
+    setLeads((data && data.leads) ? data.leads : SEED_LEADS);
+    setAuthed(true);
+    setCheckingAuth(false);
+  }
+
+  async function persist(next){
     setLeads(next);
     try{
-      localStorage.setItem("leads", JSON.stringify(next));
-      setSaveError(false);
+      const r = await fetch("/api/leads", {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify(next)
+      });
+      if(r.status===401){
+        sessionStorage.removeItem("sitePassword");
+        setAuthed(false);
+        return;
+      }
+      setSaveError(!r.ok);
     }catch(e){
       setSaveError(true);
     }
@@ -293,6 +355,32 @@ function App(){
     STATUSES.forEach(s => c[s] = scopeLeads.filter(l=>l.status===s).length);
     return c;
   },[scopeLeads]);
+
+  if(checkingAuth){
+    return <div className="loading">checking access…</div>;
+  }
+
+  if(!authed){
+    return (
+      <div className="lock-wrap">
+        <div className="lock-card">
+          <div className="brand-eyebrow">// PlugNet Web Enterprise lead_pipeline</div>
+          <h1 style={{marginBottom:14}}>Enter password</h1>
+          <input
+            type="password"
+            className="lock-input"
+            placeholder="Site password"
+            value={pwInput}
+            onChange={e=>setPwInput(e.target.value)}
+            onKeyDown={e=>{ if(e.key==="Enter") submitPassword(); }}
+            autoFocus
+          />
+          <button style={{marginTop:10,width:"100%"}} onClick={submitPassword}>Unlock</button>
+          {pwError && <div style={{color:"var(--signal)",fontSize:12,marginTop:8}}>Incorrect password — try again.</div>}
+        </div>
+      </div>
+    );
+  }
 
   if(leads===null){
     return <div className="loading">loading leads…</div>;
