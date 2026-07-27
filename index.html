@@ -1,26 +1,18 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Client Pipeline — Lead Tracker</title>
-</head>
-<body>
 <div id="app"></div>
 <style>
   *{box-sizing:border-box;}
   html,body{margin:0;padding:0;}
   :root{
-    --bg:#15171c;
-    --panel:#1e2129;
-    --panel-2:#262a34;
-    --line:#333844;
-    --text:#eceef2;
-    --muted:#8b8fa3;
-    --signal:#ff7a45;
-    --signal-dim:#5c3a2c;
-    --ok:#3ecf8e;
-    --warn:#f2c94c;
+    --bg:#000000;
+    --panel:#121212;
+    --panel-2:#1c1c1c;
+    --line:#2e2e2e;
+    --text:#ffffff;
+    --muted:#999999;
+    --signal:#270E83;
+    --signal-dim:#4a2fc9;
+    --ok:#ffffff;
+    --warn:#bfbfbf;
     --mono: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
     --sans: 'Inter', -apple-system, sans-serif;
   }
@@ -48,7 +40,7 @@
     font-family:var(--mono);font-size:12px;text-transform:uppercase;letter-spacing:.06em;
     padding:7px 16px;border-radius:6px;border:none;background:transparent;color:var(--muted);cursor:pointer;font-weight:600;
   }
-  .scope-btn.active{background:var(--signal);color:#1a1208;}
+  .scope-btn.active{background:var(--signal);color:#ffffff;}
   .region-select{
     background:var(--panel);border:1px solid var(--line);color:var(--text);
     padding:8px 12px;border-radius:6px;font-family:var(--sans);font-size:13px;font-weight:600;
@@ -61,7 +53,7 @@
     padding:8px 10px;border-radius:6px;font-family:var(--sans);font-size:13px;
   }
   button{
-    background:var(--signal);color:#1a1208;border:none;padding:8px 14px;border-radius:6px;
+    background:var(--signal);color:#ffffff;border:none;padding:8px 14px;border-radius:6px;
     font-family:var(--sans);font-weight:600;font-size:13px;cursor:pointer;
   }
   button.ghost{background:transparent;border:1px solid var(--line);color:var(--text);}
@@ -94,7 +86,7 @@
   }
   .status-New{color:var(--signal);border-color:var(--signal-dim);}
   .status-Contacted{color:var(--warn);}
-  .status-Replied{color:#7db8ff;}
+  .status-Replied{color:#e0e0e0;}
   .status-Qualified{color:var(--ok);}
   .status-Closed{color:var(--muted);}
   .del{background:none;border:none;color:var(--muted);font-size:11px;cursor:pointer;padding:0;text-decoration:underline;}
@@ -109,13 +101,6 @@
 
   .empty{color:var(--muted);text-align:center;padding:40px 0;font-size:13px;}
   .loading{color:var(--muted);text-align:center;padding:40px 0;font-family:var(--mono);font-size:13px;}
-
-  .lock-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;}
-  .lock-card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:32px 28px;width:100%;max-width:340px;}
-  .lock-input{
-    width:100%;background:var(--panel-2);border:1px solid var(--line);color:var(--text);
-    padding:10px 12px;border-radius:6px;font-family:var(--sans);font-size:14px;
-  }
 </style>
 <script type="text/babel">
 const { useState, useEffect, useMemo } = React;
@@ -170,10 +155,6 @@ function StatusPill({status}){
 }
 
 function App(){
-  const [authed,setAuthed] = useState(false);
-  const [pwInput,setPwInput] = useState("");
-  const [pwError,setPwError] = useState(false);
-  const [checkingAuth,setCheckingAuth] = useState(true);
   const [leads,setLeads] = useState(null);
   const [scope,setScope] = useState("local");
   const [region,setRegion] = useState("Lagos");
@@ -228,71 +209,23 @@ function App(){
     URL.revokeObjectURL(url);
   }
 
-  function authHeaders(){
-    const pw = sessionStorage.getItem("sitePassword") || "";
-    return {"Content-Type":"application/json", "x-site-password": pw};
-  }
-
-  async function loadLeads(){
-    try{
-      const r = await fetch("/api/leads", {headers: authHeaders()});
-      if(r.status===401){
-        sessionStorage.removeItem("sitePassword");
-        setAuthed(false);
-        setCheckingAuth(false);
-        return;
-      }
-      const data = await r.json();
-      setLeads((data && data.leads) ? data.leads : SEED_LEADS);
-      setAuthed(true);
-      setCheckingAuth(false);
-    }catch(e){
-      setLeads(SEED_LEADS);
-      setAuthed(true);
-      setCheckingAuth(false);
-    }
-  }
-
   useEffect(()=>{
-    const stored = sessionStorage.getItem("sitePassword");
-    if(stored===null){
-      setCheckingAuth(false);
-      return;
-    }
-    loadLeads();
+    (async ()=>{
+      try{
+        const res = await window.storage.get("leads", false);
+        setLeads(res ? JSON.parse(res.value) : SEED_LEADS);
+      }catch(e){
+        setLeads(SEED_LEADS);
+      }
+    })();
   },[]);
-
-  async function submitPassword(){
-    sessionStorage.setItem("sitePassword", pwInput);
-    setPwError(false);
-    setCheckingAuth(true);
-    const r = await fetch("/api/leads", {headers: authHeaders()});
-    if(r.status===401){
-      sessionStorage.removeItem("sitePassword");
-      setPwError(true);
-      setCheckingAuth(false);
-      return;
-    }
-    const data = await r.json();
-    setLeads((data && data.leads) ? data.leads : SEED_LEADS);
-    setAuthed(true);
-    setCheckingAuth(false);
-  }
 
   async function persist(next){
     setLeads(next);
     try{
-      const r = await fetch("/api/leads", {
-        method: "POST",
-        headers: authHeaders(),
-        body: JSON.stringify(next)
-      });
-      if(r.status===401){
-        sessionStorage.removeItem("sitePassword");
-        setAuthed(false);
-        return;
-      }
-      setSaveError(!r.ok);
+      const res = await window.storage.set("leads", JSON.stringify(next), false);
+      if(!res) setSaveError(true);
+      else setSaveError(false);
     }catch(e){
       setSaveError(true);
     }
@@ -355,32 +288,6 @@ function App(){
     STATUSES.forEach(s => c[s] = scopeLeads.filter(l=>l.status===s).length);
     return c;
   },[scopeLeads]);
-
-  if(checkingAuth){
-    return <div className="loading">checking access…</div>;
-  }
-
-  if(!authed){
-    return (
-      <div className="lock-wrap">
-        <div className="lock-card">
-          <div className="brand-eyebrow">// PlugNet Web Enterprise lead_pipeline</div>
-          <h1 style={{marginBottom:14}}>Enter password</h1>
-          <input
-            type="password"
-            className="lock-input"
-            placeholder="Site password"
-            value={pwInput}
-            onChange={e=>setPwInput(e.target.value)}
-            onKeyDown={e=>{ if(e.key==="Enter") submitPassword(); }}
-            autoFocus
-          />
-          <button style={{marginTop:10,width:"100%"}} onClick={submitPassword}>Unlock</button>
-          {pwError && <div style={{color:"var(--signal)",fontSize:12,marginTop:8}}>Incorrect password — try again.</div>}
-        </div>
-      </div>
-    );
-  }
 
   if(leads===null){
     return <div className="loading">loading leads…</div>;
@@ -540,4 +447,3 @@ ReactDOM.createRoot(document.getElementById("app")).render(<App/>);
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
-</body></html>
