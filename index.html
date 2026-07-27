@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Client Pipeline — Lead Tracker</title>
+</head>
+<body>
+<div id="app"></div>
+<style>
+  :root{
+    --bg:#15171c;
+    --panel:#1e2129;
+    --panel-2:#262a34;
+    --line:#333844;
+    --text:#eceef2;
+    --muted:#8b8fa3;
+    --signal:#ff7a45;
+    --signal-dim:#5c3a2c;
+    --ok:#3ecf8e;
+    --warn:#f2c94c;
+    --mono: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
+    --sans: 'Inter', -apple-system, sans-serif;
+  }
+  *{box-sizing:border-box;}
+  #app{
+    background:var(--bg);
+    color:var(--text);
+    font-family:var(--sans);
+    min-height:100vh;
+    padding:28px 20px 60px;
+  }
+  .wrap{max-width:960px;margin:0 auto;}
+  .top{display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:12px;margin-bottom:22px;border-bottom:1px solid var(--line);padding-bottom:18px;}
+  .brand-eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.14em;color:var(--signal);text-transform:uppercase;margin-bottom:6px;}
+  h1{font-family:var(--mono);font-size:22px;font-weight:600;margin:0;letter-spacing:-.01em;}
+  .sub{color:var(--muted);font-size:13px;margin-top:4px;}
+  .stats{display:flex;gap:18px;font-family:var(--mono);}
+  .stat{text-align:right;}
+  .stat .n{font-size:20px;font-weight:700;}
+  .stat .l{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;}
+
+  .toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;align-items:center;}
+  select,input[type=text]{
+    background:var(--panel);border:1px solid var(--line);color:var(--text);
+    padding:8px 10px;border-radius:6px;font-family:var(--sans);font-size:13px;
+  }
+  button{
+    background:var(--signal);color:#1a1208;border:none;padding:8px 14px;border-radius:6px;
+    font-family:var(--sans);font-weight:600;font-size:13px;cursor:pointer;
+  }
+  button.ghost{background:transparent;border:1px solid var(--line);color:var(--text);}
+  button:hover{opacity:.9;}
+
+  .card{
+    background:var(--panel);border:1px solid var(--line);border-radius:10px;
+    padding:16px 18px;margin-bottom:10px;display:grid;grid-template-columns:1fr auto;gap:12px;
+  }
+  .card-main{min-width:0;}
+  .name-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+  .name{font-weight:600;font-size:15px;}
+  .niche-tag{font-family:var(--mono);font-size:10px;color:var(--muted);border:1px solid var(--line);border-radius:4px;padding:2px 6px;text-transform:uppercase;letter-spacing:.05em;}
+  .meta{color:var(--muted);font-size:12.5px;margin-top:4px;line-height:1.5;}
+  .meta a{color:var(--muted);}
+  .contact-row{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;}
+  .inline-input{
+    flex:1;min-width:140px;background:var(--panel-2);border:1px solid var(--line);color:var(--text);
+    border-radius:6px;padding:6px 8px;font-size:12.5px;font-family:var(--sans);
+  }
+  .notes{
+    width:100%;margin-top:8px;background:var(--panel-2);border:1px solid var(--line);
+    color:var(--text);border-radius:6px;padding:8px;font-size:12.5px;font-family:var(--sans);resize:vertical;min-height:32px;
+  }
+  .card-side{display:flex;flex-direction:column;gap:8px;align-items:flex-end;min-width:150px;}
+  .status-select{width:100%;}
+  .status-pill{
+    font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.06em;
+    padding:3px 8px;border-radius:20px;border:1px solid var(--line);
+  }
+  .status-New{color:var(--signal);border-color:var(--signal-dim);}
+  .status-Contacted{color:var(--warn);}
+  .status-Replied{color:#7db8ff;}
+  .status-Qualified{color:var(--ok);}
+  .status-Closed{color:var(--muted);}
+  .del{background:none;border:none;color:var(--muted);font-size:11px;cursor:pointer;padding:0;text-decoration:underline;}
+
+  .add-form{
+    background:var(--panel);border:1px dashed var(--line);border-radius:10px;padding:16px 18px;margin-bottom:20px;
+    display:grid;grid-template-columns:1fr 1fr;gap:8px;
+  }
+  .add-form input, .add-form select{width:100%;}
+  .add-form .full{grid-column:1/-1;}
+  .add-form-title{font-family:var(--mono);font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;grid-column:1/-1;margin-bottom:2px;}
+
+  .empty{color:var(--muted);text-align:center;padding:40px 0;font-size:13px;}
+  .loading{color:var(--muted);text-align:center;padding:40px 0;font-family:var(--mono);font-size:13px;}
+</style>
+<script type="text/babel">
+const { useState, useEffect, useMemo } = React;
+
+const STATUSES = ["New","Contacted","Replied","Qualified","Closed"];
+const todayStr = new Date().toISOString().slice(0,10);
+
+const SEED_LEADS = [
+  {id:"l1",name:"Biba Kulture - Lagos Fashion Designer",niche:"Fashion/Retail",phone:"+234 907 868 5648",email:"",website:"",address:"105 Lewis St, Lagos Island",rating:"5.0 (63)",status:"New",notes:"High rating, delivery-heavy brand — check if they have a proper checkout site or just DMs.",followUp:""},
+  {id:"l2",name:"Glitz N Glam Collections",niche:"Fashion/Retail",phone:"+234 909 000 0381",email:"",website:"",address:"Akowonjo Rd, Alimosho",rating:"4.9 (16)",status:"New",notes:"",followUp:""},
+  {id:"l3",name:"shopkyluxury fashion stores lekki",niche:"Fashion/Retail",phone:"+234 708 520 7708",email:"",website:"",address:"Admiralty Wy, Lekki Phase 1",rating:"4.2 (17)",status:"New",notes:"Mixed reviews on quality — website credibility/trust signals could help them.",followUp:""},
+  {id:"l4",name:"Dexstitches Fashion Hub",niche:"Fashion/Retail",phone:"+234 703 618 4523",email:"",website:"",address:"Oko-Oba Rd, Ikeja",rating:"4.8 (171)",status:"New",notes:"High order volume (nationwide delivery) — likely needs real inventory/ordering system.",followUp:""},
+  {id:"l5",name:"Polo Avenue Luxury Boutique",niche:"Fashion/Retail",phone:"+234 816 030 6769",email:"",website:"",address:"Ozumba Mbadiwe Ave, Victoria Island",rating:"4.5 (65)",status:"New",notes:"Luxury positioning — a premium site would match their brand better than social-only presence.",followUp:""},
+  {id:"l6",name:"NanaClothing",niche:"Fashion/Retail",phone:"+234 816 607 7518",email:"",website:"",address:"Fola Osibo Rd, Lekki Phase I",rating:"4.5 (11)",status:"New",notes:"",followUp:""},
+  {id:"l7",name:"Perfectmalls Electronics",niche:"Electronics",phone:"+234 806 604 4650",email:"",website:"",address:"Alaba International Market Rd, Ojo",rating:"5.0 (13)",status:"New",notes:"Nationwide delivery mentioned in reviews — good fit for a real e-commerce store.",followUp:""},
+  {id:"l8",name:"Somotex Nigeria Limited",niche:"Electronics",phone:"+234 906 000 2266",email:"",website:"",address:"Olorunfunmi St, Ojota, Ikeja",rating:"4.0 (444)",status:"New",notes:"Reviews mention comms/service complaints — a booking/repair-tracking site could fix that.",followUp:""},
+  {id:"l9",name:"Cash \"N\" Carry Ikeja",niche:"Electronics",phone:"+234 904 000 0789",email:"",website:"",address:"Kodesoh St, Ikeja",rating:"4.1 (542)",status:"New",notes:"",followUp:""},
+  {id:"l10",name:"Fouani Nigeria Ltd (LG Showroom)",niche:"Electronics",phone:"+234 201 888 4444",email:"",website:"",address:"Allen Ave, Allen, Lagos",rating:"4.3 (790)",status:"New",notes:"Larger brand — likely already has a site, verify before pitching.",followUp:""},
+  {id:"l11",name:"Lighthouse Electronics",niche:"Electronics",phone:"+234 809 661 7214",email:"",website:"",address:"Allen Ave, Allen, Ikeja",rating:"4.0 (72)",status:"New",notes:"",followUp:""},
+  {id:"l12",name:"Phone Gadgets",niche:"Electronics",phone:"+234 915 840 0001",email:"",website:"",address:"Computer Village, Ikeja",rating:"4.1 (940)",status:"New",notes:"Computer Village shop — reviews mention fraud concern from other vendors, a verified storefront site is a strong pitch angle.",followUp:""},
+  {id:"l13",name:"Original Cosmetics Nigeria",niche:"Beauty/Cosmetics",phone:"+234 909 609 0764",email:"",website:"",address:"Allen Ave, Allen, Ikeja",rating:"4.6 (521)",status:"New",notes:"Already sounds like they have some online presence — confirm site quality first.",followUp:""},
+  {id:"l14",name:"Allure Beauty Store Ikeja",niche:"Beauty/Cosmetics",phone:"+234 816 624 2541",email:"",website:"",address:"Opebi Rd, Ikeja",rating:"4.0 (60)",status:"New",notes:"One review mentions unclear online trial/billing terms — a clean checkout page would help trust.",followUp:""},
+  {id:"l15",name:"ODILUXE COSMETICS",niche:"Beauty/Cosmetics",phone:"+234 907 399 8381",email:"",website:"",address:"Opebi Rd, Opebi, Ikeja",rating:"4.9 (35)",status:"New",notes:"Reviews mention ordering directly from her — check if it's IG-only, good opportunity.",followUp:""},
+  {id:"l16",name:"Beautybydaz Nigeria",niche:"Beauty/Cosmetics",phone:"+234 808 581 2453",email:"",website:"",address:"City Mall, Ogudu Rd, Ojota",rating:"4.3 (81)",status:"New",notes:"WhatsApp-based ordering mentioned — real site could reduce staff workload.",followUp:""},
+  {id:"l17",name:"Honey beauty cosmetics",niche:"Beauty/Cosmetics",phone:"+234 802 455 6274",email:"",website:"",address:"Oladipo St, Ikosi Ketu",rating:"4.8 (16)",status:"New",notes:"",followUp:""},
+  {id:"l18",name:"CW Real Estate Lagos",niche:"Real Estate",phone:"+234 704 808 9362",email:"",website:"",address:"Modupe Alakija Cres, Ikoyi",rating:"4.9 (131)",status:"New",notes:"High-value listings — a polished site with property galleries would fit their price point.",followUp:""},
+  {id:"l19",name:"Ramos Real Estate Nigeria",niche:"Real Estate",phone:"+234 813 335 5522",email:"",website:"",address:"Chevron Dr, Eti-Osa, Lekki",rating:"4.9 (73)",status:"New",notes:"",followUp:""},
+  {id:"l20",name:"Numero Homes",niche:"Real Estate",phone:"+234 702 500 0038",email:"",website:"",address:"Dr Ladi Alakija St, Ibeju Lekki",rating:"5.0 (40)",status:"New",notes:"A review already praises their site's listing detail — check if it needs a refresh rather than a rebuild.",followUp:""},
+  {id:"l21",name:"Oparah Realty",niche:"Real Estate",phone:"+234 805 048 0659",email:"",website:"",address:"Sule Abuka Cl, Opebi, Ikeja",rating:"4.8 (19)",status:"New",notes:"",followUp:""},
+  {id:"l22",name:"G.O.E Realtors Global Services",niche:"Real Estate",phone:"+234 816 451 6261",email:"",website:"",address:"Egbatedo Cl, Iju",rating:"5.0 (47)",status:"New",notes:"",followUp:""},
+  {id:"l23",name:"Havillah Realtors",niche:"Real Estate",phone:"+234 903 807 4516",email:"",website:"",address:"Obafalabi St, Ojodu Berger",rating:"4.9 (24)",status:"New",notes:"Reviews mention fraud skepticism in the market — a professional site with verified listings builds trust fast.",followUp:""},
+  {id:"l24",name:"Adozillion Homes and Realty",niche:"Real Estate",phone:"+234 915 517 0650",email:"",website:"",address:"Eru-ifa St, Ikate Elegushi, Lekki",rating:"4.8 (25)",status:"New",notes:"Luxury developer — could use a strong project showcase site.",followUp:""},
+  {id:"l25",name:"Revolutionplus Property Development",niche:"Real Estate",phone:"+234 809 639 1579",email:"",website:"",address:"Off Toyin St, Allen, Ikeja",rating:"4.2 (323)",status:"New",notes:"Multiple reviews cite poor communication/allocation delays — a client portal for tracking allocation status could be a strong pitch.",followUp:""},
+  {id:"l26",name:"Mixta Africa (Mixta Real Estate Plc)",niche:"Real Estate",phone:"+234 814 481 0080",email:"",website:"",address:"Kasumu Ekemode St, Victoria Island",rating:"4.4 (204)",status:"New",notes:"Larger company, likely has a site already — verify first.",followUp:""},
+  {id:"l27",name:"Denaro Properties Limited",niche:"Real Estate",phone:"+234 808 291 4142",email:"",website:"",address:"Ajumobi Olorunoje St, Agidingbi, Ikeja",rating:"4.4 (35)",status:"New",notes:"",followUp:""},
+  {id:"l28",name:"Kenmas Properties And Development",niche:"Real Estate",phone:"",email:"",website:"",address:"Abiodun Sobajo St, Ikeja",rating:"5.0 (3)",status:"New",notes:"Very few reviews — smaller/newer firm, likely needs a full first website.",followUp:""},
+  {id:"l29",name:"Resolution Law Firm",niche:"Law Firm",phone:"+234 809 922 3322",email:"",website:"",address:"Ajao Rd, off Obafemi Awolowo Way, Ikeja",rating:"4.9 (357)",status:"New",notes:"Handles real estate/finance disputes too — a client-facing case portal or FAQ hub could be a strong pitch.",followUp:""},
+  {id:"l30",name:"Chaman Law Firm",niche:"Law Firm",phone:"+234 806 555 3671",email:"",website:"",address:"Obafemi Awolowo Way, Allen, Ikeja",rating:"4.9 (333)",status:"New",notes:"Also does accounting/real estate due diligence — broad services could use a clearer service-page site structure.",followUp:""},
+  {id:"l31",name:"BAM & GAD Solicitors",niche:"Law Firm",phone:"+234 806 278 7594",email:"",website:"",address:"Allen Avenue, Ikeja",rating:"4.9 (110)",status:"New",notes:"Reviews read as template/copy-paste style — worth checking if their website copy has the same issue.",followUp:""},
+  {id:"l32",name:"Banwo & Ighodalo",niche:"Law Firm",phone:"+234 906 000 3561",email:"",website:"",address:"Awolowo Rd, Ikoyi",rating:"4.6 (271)",status:"New",notes:"Reviews describe the office itself as \"tech driven\" — check if their website matches that positioning.",followUp:""},
+  {id:"l33",name:"Adeola Oyinlade & Co",niche:"Law Firm",phone:"+234 803 826 7683",email:"",website:"",address:"Olonode St, Yaba",rating:"5.0 (52)",status:"New",notes:"Corporate/IP/dispute practice — a resources or insights section could support SEO and credibility.",followUp:""},
+  {id:"l34",name:"Ibukun Ade & Associates",niche:"Law Firm",phone:"+234 816 326 0500",email:"",website:"",address:"Akin Osiyemi St, off Allen Avenue, Ikeja",rating:"5.0 (22)",status:"New",notes:"Smaller litigation practice, high rating — good candidate for a first professional website.",followUp:""},
+];
+
+function StatusPill({status}){
+  return <span className={`status-pill status-${status}`}>{status}</span>;
+}
+
+function App(){
+  const [leads,setLeads] = useState(null);
+  const [filterNiche,setFilterNiche] = useState("All");
+  const [filterStatus,setFilterStatus] = useState("All");
+  const [showForm,setShowForm] = useState(false);
+  const [form,setForm] = useState({name:"",niche:"",phone:"",email:"",website:"",address:"",rating:"",notes:"",followUp:""});
+  const [saveError,setSaveError] = useState(false);
+  const [selected,setSelected] = useState({});
+
+  function toggleSelect(id){
+    setSelected(prev => ({...prev, [id]: !prev[id]}));
+  }
+
+  function selectAllVisible(ids, checked){
+    setSelected(prev => {
+      const next = {...prev};
+      ids.forEach(id => next[id] = checked);
+      return next;
+    });
+  }
+
+  function csvEscape(val){
+    const s = (val===undefined || val===null) ? "" : String(val);
+    if(/[",\n]/.test(s)) return '"' + s.replace(/"/g,'""') + '"';
+    return s;
+  }
+
+  function exportSelected(list){
+    const cols = ["name","niche","phone","email","website","address","rating","status","followUp","notes"];
+    const headerLabels = ["Name","Niche","Phone","Email","Website","Address","Rating","Status","Follow-up Date","Notes"];
+    const rows = [headerLabels.join(",")];
+    list.forEach(l => {
+      rows.push(cols.map(c => csvEscape(l[c])).join(","));
+    });
+    const csvContent = rows.join("\n");
+    const blob = new Blob([csvContent], {type:"text/csv;charset=utf-8;"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const dateStamp = new Date().toISOString().slice(0,10);
+    a.href = url;
+    a.download = `leads-export-${dateStamp}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  useEffect(()=>{
+    try{
+      const raw = localStorage.getItem("leads");
+      setLeads(raw ? JSON.parse(raw) : SEED_LEADS);
+    }catch(e){
+      setLeads(SEED_LEADS);
+    }
+  },[]);
+
+  function persist(next){
+    setLeads(next);
+    try{
+      localStorage.setItem("leads", JSON.stringify(next));
+      setSaveError(false);
+    }catch(e){
+      setSaveError(true);
+    }
+  }
+
+  function updateLead(id, patch){
+    const next = leads.map(l => l.id===id ? {...l, ...patch} : l);
+    persist(next);
+  }
+
+  function deleteLead(id){
+    persist(leads.filter(l => l.id!==id));
+  }
+
+  function addLead(){
+    if(!form.name.trim()) return;
+    const next = [{
+      id: "l"+Date.now(),
+      name: form.name.trim(),
+      niche: form.niche.trim() || "Other",
+      phone: form.phone.trim(),
+      email: form.email.trim(),
+      website: form.website.trim(),
+      address: form.address.trim(),
+      rating: form.rating.trim(),
+      status: "New",
+      notes: form.notes.trim(),
+      followUp: form.followUp.trim(),
+    }, ...leads];
+    persist(next);
+    setForm({name:"",niche:"",phone:"",email:"",website:"",address:"",rating:"",notes:"",followUp:""});
+    setShowForm(false);
+  }
+
+  const niches = useMemo(()=>{
+    if(!leads) return [];
+    return ["All", ...Array.from(new Set(leads.map(l=>l.niche)))];
+  },[leads]);
+
+  const filtered = useMemo(()=>{
+    if(!leads) return [];
+    const list = leads.filter(l =>
+      (filterNiche==="All" || l.niche===filterNiche) &&
+      (filterStatus==="All" || l.status===filterStatus)
+    );
+    return [...list].sort((a,b)=>{
+      const af = a.followUp || "9999-99-99";
+      const bf = b.followUp || "9999-99-99";
+      return af.localeCompare(bf);
+    });
+  },[leads,filterNiche,filterStatus]);
+
+  const counts = useMemo(()=>{
+    if(!leads) return {};
+    const c = {};
+    STATUSES.forEach(s => c[s] = leads.filter(l=>l.status===s).length);
+    return c;
+  },[leads]);
+
+  if(leads===null){
+    return <div className="loading">loading leads…</div>;
+  }
+
+  return (
+    <div className="wrap">
+      <div className="top">
+        <div>
+          <div className="brand-eyebrow">// lead_scan.lagos</div>
+          <h1>Client Pipeline</h1>
+          <div className="sub">Ecommerce &amp; retail leads · Lagos · sourced from Google Places</div>
+        </div>
+        <div className="stats">
+          <div className="stat"><div className="n">{leads.length}</div><div className="l">total</div></div>
+          <div className="stat"><div className="n" style={{color:"var(--signal)"}}>{counts.New||0}</div><div className="l">new</div></div>
+          <div className="stat"><div className="n" style={{color:"var(--ok)"}}>{counts.Qualified||0}</div><div className="l">qualified</div></div>
+        </div>
+      </div>
+
+      <div className="toolbar">
+        <select value={filterNiche} onChange={e=>setFilterNiche(e.target.value)}>
+          {niches.map(n => <option key={n} value={n}>{n}</option>)}
+        </select>
+        <select value={filterStatus} onChange={e=>setFilterStatus(e.target.value)}>
+          <option value="All">All statuses</option>
+          {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+        </select>
+        <button className="ghost" onClick={()=>setShowForm(!showForm)}>{showForm ? "Cancel" : "+ Add lead"}</button>
+        <span style={{flex:1}}></span>
+        <label style={{fontSize:12,color:"var(--muted)",display:"flex",alignItems:"center",gap:5}}>
+          <input
+            type="checkbox"
+            checked={filtered.length>0 && filtered.every(l=>selected[l.id])}
+            onChange={e=>selectAllVisible(filtered.map(l=>l.id), e.target.checked)}
+          />
+          select all shown
+        </label>
+        <button
+          onClick={()=>{
+            const toExport = leads.filter(l=>selected[l.id]);
+            if(toExport.length===0) return;
+            exportSelected(toExport);
+          }}
+        >
+          Export selected ({Object.values(selected).filter(Boolean).length}) to CSV
+        </button>
+      </div>
+
+      {showForm &&
+        <div className="add-form">
+          <div className="add-form-title">New lead</div>
+          <input type="text" placeholder="Business name" value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/>
+          <input type="text" placeholder="Niche (e.g. Fashion/Retail)" value={form.niche} onChange={e=>setForm({...form,niche:e.target.value})}/>
+          <input type="text" placeholder="Phone" value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})}/>
+          <input type="text" placeholder="Email" value={form.email} onChange={e=>setForm({...form,email:e.target.value})}/>
+          <input type="text" placeholder="Website (leave blank if none found)" value={form.website} onChange={e=>setForm({...form,website:e.target.value})}/>
+          <input type="text" placeholder="Address" value={form.address} onChange={e=>setForm({...form,address:e.target.value})}/>
+          <input type="text" placeholder="Rating (optional)" value={form.rating} onChange={e=>setForm({...form,rating:e.target.value})}/>
+          <input type="text" placeholder="Notes (site issues, angle, etc.)" value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})}/>
+          <div>
+            <label style={{fontFamily:"var(--mono)",fontSize:10,color:"var(--muted)",textTransform:"uppercase",letterSpacing:".06em",display:"block",marginBottom:4}}>Follow-up date</label>
+            <input type="date" style={{width:"100%"}} value={form.followUp} onChange={e=>setForm({...form,followUp:e.target.value})}/>
+          </div>
+          <div className="full"><button onClick={addLead}>Save lead</button></div>
+        </div>
+      }
+
+      {filtered.length===0 && <div className="empty">No leads match this filter.</div>}
+
+      {filtered.map(l => (
+        <div className="card" key={l.id}>
+          <div className="card-main">
+            <div className="name-row">
+              <input
+                type="checkbox"
+                checked={!!selected[l.id]}
+                onChange={()=>toggleSelect(l.id)}
+                style={{marginRight:2}}
+              />
+              <span className="name">{l.name}</span>
+              <span className="niche-tag">{l.niche}</span>
+            </div>
+            <div className="meta">
+              {l.phone && <span>{l.phone} · </span>}
+              {l.address && <span>{l.address}</span>}
+              {l.rating && <span> · ★ {l.rating}</span>}
+            </div>
+            <div className="contact-row">
+              <input
+                type="text"
+                className="inline-input"
+                placeholder="Email"
+                value={l.email||""}
+                onChange={e=>updateLead(l.id,{email:e.target.value})}
+              />
+              <input
+                type="text"
+                className="inline-input"
+                placeholder="Website (e.g. https://...)"
+                value={l.website||""}
+                onChange={e=>updateLead(l.id,{website:e.target.value})}
+              />
+            </div>
+            <textarea
+              className="notes"
+              placeholder="Notes: site issues found, pitch angle, follow-up date..."
+              value={l.notes}
+              onChange={e=>updateLead(l.id, {notes:e.target.value})}
+            />
+          </div>
+          <div className="card-side">
+            <StatusPill status={l.status}/>
+            <select className="status-select" value={l.status} onChange={e=>updateLead(l.id,{status:e.target.value})}>
+              {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+            <div style={{width:"100%"}}>
+              <label style={{fontFamily:"var(--mono)",fontSize:9,color:"var(--muted)",textTransform:"uppercase",letterSpacing:".06em",display:"block",marginBottom:2}}>Follow up</label>
+              <input
+                type="date"
+                style={{
+                  width:"100%",
+                  borderColor: (l.followUp && l.followUp <= todayStr && l.status!=="Closed") ? "var(--signal)" : "var(--line)"
+                }}
+                value={l.followUp||""}
+                onChange={e=>updateLead(l.id,{followUp:e.target.value})}
+              />
+              {l.followUp && l.followUp <= todayStr && l.status!=="Closed" &&
+                <div style={{fontFamily:"var(--mono)",fontSize:9,color:"var(--signal)",marginTop:3}}>due</div>
+              }
+            </div>
+            <button className="del" onClick={()=>deleteLead(l.id)}>remove</button>
+          </div>
+        </div>
+      ))}
+
+      {saveError && <div className="empty">Couldn't save changes right now — your edits are visible but may not persist. Try again in a moment.</div>}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("app")).render(<App/>);
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+</body></html>
