@@ -181,6 +181,7 @@ function App(){
   const [pwInput,setPwInput] = useState("");
   const [pwError,setPwError] = useState(false);
   const [networkError,setNetworkError] = useState(false);
+  const [apiError,setApiError] = useState("");
   const [checkingAuth,setCheckingAuth] = useState(true);
   const [showPw,setShowPw] = useState(false);
   const [leads,setLeads] = useState(null);
@@ -275,16 +276,25 @@ function App(){
     sessionStorage.setItem("sitePassword", pwInput);
     setPwError(false);
     setNetworkError(false);
+    setApiError("");
     setCheckingAuth(true);
     try{
       const r = await fetch("/api/leads", {headers: authHeaders()});
+      let data = null;
+      try{ data = await r.json(); }catch(parseErr){ data = null; }
+
       if(r.status===401){
         sessionStorage.removeItem("sitePassword");
         setPwError(true);
         setCheckingAuth(false);
         return;
       }
-      const data = await r.json();
+      if(!r.ok){
+        sessionStorage.removeItem("sitePassword");
+        setApiError((data && data.error) ? data.error : `Server error (status ${r.status}). Check Vercel function logs.`);
+        setCheckingAuth(false);
+        return;
+      }
       setLeads((data && data.leads) ? data.leads : SEED_LEADS);
       setAuthed(true);
       setCheckingAuth(false);
@@ -404,6 +414,7 @@ function App(){
           <button style={{marginTop:10,width:"100%"}} onClick={submitPassword}>Unlock</button>
           {pwError && <div style={{color:"var(--signal)",fontSize:12,marginTop:8}}>Incorrect password — try again.</div>}
           {networkError && <div style={{color:"var(--signal)",fontSize:12,marginTop:8}}>Connection hiccup — please try again.</div>}
+          {apiError && <div style={{color:"var(--signal)",fontSize:12,marginTop:8}}>{apiError}</div>}
         </div>
       </div>
     );
